@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"errors"
 	"io"
+	"net"
 	"sync"
 
 	. "m7s.live/engine/v4"
@@ -15,13 +16,20 @@ import (
 type RecordConfig struct {
 	config.Subscribe
 	config.HTTP
-	Flv        Record `desc:"flv录制配置"`
-	Mp4        Record `desc:"mp4录制配置"`
-	Fmp4       Record `desc:"fmp4录制配置"`
-	Hls        Record `desc:"hls录制配置"`
-	Raw        Record `desc:"视频裸流录制配置"`
-	RawAudio   Record `desc:"音频裸流录制配置"`
-	recordings sync.Map
+	Flv              Record `desc:"flv录制配置"`
+	Mp4              Record `desc:"mp4录制配置"`
+	Fmp4             Record `desc:"fmp4录制配置"`
+	Hls              Record `desc:"hls录制配置"`
+	Raw              Record `desc:"视频裸流录制配置"`
+	RawAudio         Record `desc:"音频裸流录制配置"`
+	recordings       sync.Map
+	beforeDuration   int     `desc:"事件前缓存时长"`
+	afterDuration    int     `desc:"事件后缓存时长"`
+	MysqlDSN         string  `desc:"mysql数据库连接字符串"`
+	ExceptionPostUrl string  `desc:"第三方异常上报地址"`
+	SqliteDbPath     string  `desc:"sqlite数据库路径"`
+	DiskMaxPercent   float64 `desc:"硬盘使用百分之上限值，超过后报警"`
+	LocalIp          string  `desc:"本机IP"`
 }
 
 //go:embed default.yaml
@@ -53,13 +61,33 @@ var RecordPluginConfig = &RecordConfig{
 		Path: "record/raw",
 		Ext:  ".", // 默认aac扩展名为.aac,pcma扩展名为.pcma,pcmu扩展名为.pcmu
 	},
+	beforeDuration:   30,
+	afterDuration:    30,
+	MysqlDSN:         "",
+	ExceptionPostUrl: "http://www.163.com",
+	SqliteDbPath:     "./sqlite.db",
+	DiskMaxPercent:   80.00,
+	LocalIp:          getLocalIP(),
 }
 
 var plugin = InstallPlugin(RecordPluginConfig, defaultYaml)
+var exceptionChannel = make(chan *Exception)
 
 func (conf *RecordConfig) OnEvent(event any) {
 	switch v := event.(type) {
 	case FirstConfig, config.Config:
+		if conf.MysqlDSN == "" {
+			plugin.Error("mysqlDSN 数据库连接配置为空，无法运行，请在config.yaml里配置")
+		}
+		plugin.Info("mysqlDSN is" + conf.MysqlDSN)
+
+		go func() { //处理所有异常，录像中断异常、录像读取异常、录像导出文件中断、磁盘容量低于阈值异常、磁盘异常
+			for exception := range exceptionChannel {
+				SendToThirdPartyAPI(exception)
+			}
+		}()
+		initMysqlDB(conf.MysqlDSN)
+		initSqliteDB(conf.SqliteDbPath)
 		conf.Flv.Init()
 		conf.Mp4.Init()
 		conf.Fmp4.Init()
@@ -121,4 +149,20 @@ func getFLVDuration(file io.ReadSeeker) uint32 {
 		}
 	}
 	return 0
+}
+
+func getLocalIP() string {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return ""
+	}
+
+	for _, addr := range addrs {
+		if ipNet, ok := addr.(*net.IPNet); ok && !ipNet.IP.IsLoopback() {
+			if ipNet.IP.To4() != nil {
+				return ipNet.IP.String()
+			}
+		}
+	}
+	return ""
 }

@@ -5,6 +5,8 @@ import (
 	"io"
 	"net"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -155,6 +157,17 @@ func (r *FLVRecorder) OnEvent(event any) {
 				}
 				v.Seek(0, io.SeekEnd)
 			}
+		}
+	case VideoFrame:
+		if r.VideoReader.Value.IFrame {
+			go func() { //将视频关键帧的数据存入sqlite数据库中
+				var flvKeyfram = &FLVKeyframe{FLVFileName: r.Path + "/" + strings.ReplaceAll(r.filePath, "\\", "/"), FrameOffset: r.Offset, FrameAbstime: r.VideoReader.AbsTime}
+				sqlitedb.Create(flvKeyfram)
+			}()
+			r.Info("这是关键帧，且取到了r.filePath是" + r.Path + r.filePath)
+			r.Info("这是关键帧，且取到了r.VideoReader.AbsTime是" + strconv.FormatUint(uint64(r.VideoReader.AbsTime), 10))
+			r.Info("这是关键帧，且取到了r.Offset是" + strconv.Itoa(int(r.Offset)))
+			r.Info("这是关键帧，且取到了r.Offset是" + r.Stream.Path)
 		}
 	case FLVFrame:
 		check := false
