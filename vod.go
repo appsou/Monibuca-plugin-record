@@ -2,17 +2,18 @@ package record
 
 import (
 	"bufio"
-	"go.uber.org/zap"
 	"io"
 	"io/fs"
-	"m7s.live/engine/v4/codec"
-	"m7s.live/engine/v4/util"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"go.uber.org/zap"
+	"m7s.live/engine/v4/codec"
+	"m7s.live/engine/v4/util"
 )
 
 func ext(path string) string {
@@ -279,6 +280,16 @@ func (conf *RecordConfig) Download_flv_(w http.ResponseWriter, r *http.Request) 
 
 		var amf *util.AMF
 		var metaData util.EcmaArray
+		initMetaData := func(reader io.Reader, dataLen uint32) {
+			data := make([]byte, dataLen+4)
+			_, err = io.ReadFull(reader, data)
+			amf = &util.AMF{
+				Buffer: util.Buffer(data[1+2+len("onMetaData") : len(data)-4]),
+			}
+			var obj any
+			obj, err = amf.Unmarshal()
+			metaData = obj.(map[string]any)
+		}
 		var filepositions []uint64
 		var times []float64
 		for pass := 0; pass < 2; pass++ {
@@ -363,7 +374,11 @@ func (conf *RecordConfig) Download_flv_(w http.ResponseWriter, r *http.Request) 
 					//fmt.Println(lastTimestamp, tagHead)
 					if init {
 						if t == codec.FLV_TAG_TYPE_SCRIPT {
-							_, err = reader.Discard(int(dataLen) + 4)
+							if pass == 0 {
+								initMetaData(reader, dataLen)
+							} else {
+								_, err = reader.Discard(int(dataLen) + 4)
+							}
 						} else {
 							lastTimestamp += offsetTimestamp
 							if lastTimestamp >= uint32(timeRange.Milliseconds()) {
@@ -392,14 +407,7 @@ func (conf *RecordConfig) Download_flv_(w http.ResponseWriter, r *http.Request) 
 					switch t {
 					case codec.FLV_TAG_TYPE_SCRIPT:
 						if pass == 0 {
-							data := make([]byte, dataLen+4)
-							_, err = io.ReadFull(reader, data)
-							amf = &util.AMF{
-								Buffer: util.Buffer(data[1+2+len("onMetaData") : len(data)-4]),
-							}
-							var obj any
-							obj, err = amf.Unmarshal()
-							metaData = obj.(map[string]any)
+							initMetaData(reader, dataLen)
 						} else {
 							_, err = reader.Discard(int(dataLen) + 4)
 						}
