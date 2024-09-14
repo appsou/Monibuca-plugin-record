@@ -1,9 +1,11 @@
 package record
 
 import (
+	"errors"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"log"
+	"reflect"
 )
 
 var mysqldb *gorm.DB
@@ -13,24 +15,6 @@ var createDataBaseSql = `CREATE DATABASE IF NOT EXISTS m7srecord;`
 
 var useDataBaseSql = `USE m7srecord;`
 
-var initsql = `CREATE TABLE IF NOT EXISTS eventrecord (
-  id int(11) NOT NULL AUTO_INCREMENT,
-  streamPath varchar(255) NOT NULL COMMENT '流路径',
-  eventId varchar(255) DEFAULT NULL COMMENT '事件编号',
-  eventType varchar(255) DEFAULT NULL COMMENT '事件类型',
-  eventName varchar(255) DEFAULT NULL COMMENT '事件名称',
-  beforeDuration int(255) DEFAULT NULL COMMENT '事件前缓存时长',
-  afterDuration int(255) DEFAULT NULL COMMENT '事件后缓存时长',
-  recordTime datetime DEFAULT NULL COMMENT '录像时间',
-  startTime datetime DEFAULT NULL COMMENT '录像开始时间',
-  endTime datetime DEFAULT NULL COMMENT '录像结束时间',
-  filepath varchar(255) DEFAULT NULL COMMENT '录像文件路径',
-  isDelete varchar(255) DEFAULT '0' COMMENT '是否删除，0表示正常，1表示删除，默认0',
-  fileName varchar(255) DEFAULT NULL COMMENT '文件名',
-  userId int(11) DEFAULT NULL COMMENT '用户id',
-  PRIMARY KEY (id)
-) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4;`
-
 func initMysqlDB(MysqlDSN string) {
 	mysqldb, err = gorm.Open(mysql.Open(MysqlDSN), &gorm.Config{})
 	if err != nil {
@@ -38,8 +22,7 @@ func initMysqlDB(MysqlDSN string) {
 	}
 	mysqldb.Exec(createDataBaseSql)
 	mysqldb.Exec(useDataBaseSql)
-	mysqldb.Exec(initsql)
-	//mysqldb.AutoMigrate(&EventRecord{})
+	mysqldb.AutoMigrate(&EventRecord{})
 	mysqldb.AutoMigrate(&Exception{})
 }
 
@@ -52,19 +35,35 @@ func paginate[T any](model T, pageNum, pageSize int, filters map[string]interfac
 
 	// 查询总记录数
 	countQuery := mysqldb.Model(model)
+
+	// 使用反射设置字段值
+	modelValue := reflect.ValueOf(&model).Elem() // 获取结构体值
+	modelType := modelValue.Type()
+
 	for field, value := range filters {
-		if valueStr, ok := value.(string); ok && (valueStr != "") {
-			//	countQuery = countQuery.Where(field+" LIKE ?", "%"+valueStr+"%")
-			//} else {
+		if valueStr, ok := value.(string); ok && valueStr != "" {
 			if field == "startTime" {
-				countQuery = countQuery.Where("recordTime >= ?", valueStr)
+				countQuery = countQuery.Where("create_time >= ?", valueStr)
 			} else if field == "endTime" {
-				countQuery = countQuery.Where("recordTime <= ?", valueStr)
+				countQuery = countQuery.Where("create_time <= ?", valueStr)
 			} else {
-				countQuery = countQuery.Where(field+" = ?", value)
+				// 使用反射查找字段并设置值
+				fieldName, err := findFieldByName(modelType, field)
+				if err != nil {
+					return nil, 0, err
+				}
+
+				// 设置字段值
+				if modelField := modelValue.FieldByName(fieldName); modelField.IsValid() && modelField.CanSet() {
+					modelField.Set(reflect.ValueOf(valueStr))
+					countQuery = countQuery.Where(&model)
+				} else {
+					return nil, 0, errors.New("invalid field: " + field)
+				}
 			}
 		}
 	}
+
 	result := countQuery.Count(&totalCount)
 	if result.Error != nil {
 		return nil, 0, result.Error
@@ -72,16 +71,26 @@ func paginate[T any](model T, pageNum, pageSize int, filters map[string]interfac
 
 	// 查询当前页的数据
 	query := mysqldb.Model(model).Limit(pageSize).Offset(offset)
+
 	for field, value := range filters {
-		if valueStr, ok := value.(string); ok && (valueStr != "") {
-			//	query = query.Where(field+" LIKE ?", "%"+valueStr+"%")
-			//} else {
+		if valueStr, ok := value.(string); ok && valueStr != "" {
 			if field == "startTime" {
-				query = query.Where("recordTime >= ?", valueStr)
+				query = query.Where("create_time >= ?", valueStr)
 			} else if field == "endTime" {
-				query = query.Where("recordTime <= ?", valueStr)
+				query = query.Where("create_time <= ?", valueStr)
 			} else {
-				query = query.Where(field+" = ?", value)
+				// 使用反射设置查询字段值
+				fieldName, err := findFieldByName(modelType, field)
+				if err != nil {
+					return nil, 0, err
+				}
+
+				if modelField := modelValue.FieldByName(fieldName); modelField.IsValid() && modelField.CanSet() {
+					modelField.Set(reflect.ValueOf(valueStr))
+					query = query.Where(&model)
+				} else {
+					return nil, 0, errors.New("invalid field: " + field)
+				}
 			}
 		}
 	}
@@ -92,4 +101,15 @@ func paginate[T any](model T, pageNum, pageSize int, filters map[string]interfac
 	}
 
 	return results, totalCount, nil
+}
+
+// findFieldByName 查找结构体中的字段名
+func findFieldByName(modelType reflect.Type, field string) (string, error) {
+	for i := 0; i < modelType.NumField(); i++ {
+		structField := modelType.Field(i)
+		if structField.Tag.Get("json") == field || structField.Name == field {
+			return structField.Name, nil
+		}
+	}
+	return "", errors.New("field not found: " + field)
 }

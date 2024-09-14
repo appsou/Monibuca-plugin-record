@@ -11,14 +11,18 @@ import (
 
 // 向第三方发送异常报警
 func SendToThirdPartyAPI(exception *Exception) {
-	exception.Timestamp = time.Now().Format("20060102150405")
+	exception.CreateTime = time.Now().Format("2006-01-02 15:04:05")
 	exception.ServerIP = RecordPluginConfig.LocalIp
 	data, err := json.Marshal(exception)
 	if err != nil {
 		fmt.Println("Error marshalling exception:", err)
 		return
 	}
-
+	err = mysqldb.Create(&exception).Error
+	if err != nil {
+		fmt.Println("异常数据插入数据库失败:", err)
+		return
+	}
 	resp, err := http.Post(RecordPluginConfig.ExceptionPostUrl, "application/json", bytes.NewBuffer(data))
 	if err != nil {
 		fmt.Println("Error sending exception to third party API:", err)
@@ -37,7 +41,7 @@ func SendToThirdPartyAPI(exception *Exception) {
 func getDisckException(streamPath string) bool {
 	d, _ := disk.Usage("/")
 	if d.UsedPercent >= RecordPluginConfig.DiskMaxPercent {
-		exceptionChannel <- &Exception{AlarmType: "disk alarm", AlarmDesc: "disk is full", Channel: streamPath}
+		exceptionChannel <- &Exception{AlarmType: "disk alarm", AlarmDesc: "disk is full", StreamPath: streamPath}
 		return true
 	}
 	return false
