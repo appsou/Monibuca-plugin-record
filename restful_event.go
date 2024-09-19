@@ -3,17 +3,19 @@ package record
 import (
 	"encoding/json"
 	"fmt"
-	"go.uber.org/zap"
 	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"m7s.live/engine/v4/util"
 )
+
+var mu sync.Mutex
 
 func errorJsonString(args map[string]interface{}) string {
 	resultJsonData := make(map[string]interface{})
@@ -178,7 +180,8 @@ func (conf *RecordConfig) API_event_list(w http.ResponseWriter, r *http.Request)
 
 // 事件录像
 func (conf *RecordConfig) API_event_start(w http.ResponseWriter, r *http.Request) {
-
+	mu.Lock()
+	defer mu.Unlock()
 	token := r.Header.Get("token")
 	resultJsonData := make(map[string]interface{})
 	resultJsonData["code"] = -1
@@ -215,20 +218,6 @@ func (conf *RecordConfig) API_event_start(w http.ResponseWriter, r *http.Request
 		util.ReturnError(-1, errorJsonString(resultJsonData), w, r)
 		return
 	}
-	//var streamExist = false
-	//conf.recordings.Range(func(key, value any) bool {
-	//	existStreamPath := value.(IRecorder).GetSubscriber().Stream.Path
-	//	if existStreamPath == streamPath {
-	//		resultJsonData["msg"] = "streamPath is exist"
-	//		util.ReturnError(-1, errorJsonString(resultJsonData), w, r)
-	//		streamExist = true
-	//		return !streamExist
-	//	}
-	//	return !streamExist
-	//})
-	//if streamExist {
-	//	return
-	//}
 	eventId := eventRecordModel.EventId
 	if eventId == "" {
 		resultJsonData["msg"] = "no eventId"
@@ -263,6 +252,16 @@ func (conf *RecordConfig) API_event_start(w http.ResponseWriter, r *http.Request
 	fragment := eventRecordModel.Fragment
 	//var id string
 	irecorder := NewFLVRecorder()
+	found := false
+	conf.recordings.Range(func(key, value any) bool {
+		tmpIRecorder := value.(*FLVRecorder)
+		existStreamPath := tmpIRecorder.GetSubscriber().Stream.Path
+		if existStreamPath == streamPath {
+			irecorder = tmpIRecorder
+			found = true
+		}
+		return found
+	})
 	recorder := irecorder.GetRecorder()
 	recorder.FileName = fileName
 	recorder.append = false
@@ -273,14 +272,19 @@ func (conf *RecordConfig) API_event_start(w http.ResponseWriter, r *http.Request
 			recorder.Fragment = f
 		}
 	}
-	err = irecorder.StartWithFileName(streamPath, fileName)
-	go func() {
-		timer := time.NewTimer(30 * time.Second)
 
-		// 等待计时器到期
-		<-timer.C
-		irecorder.Stop(zap.String("reason", "api"))
-	}()
+	if found {
+		irecorder.UpdateTimeout(30 * time.Second)
+	} else {
+		err = irecorder.StartWithDynamicTimeout(streamPath, fileName, 30*time.Second)
+	}
+	//go func() {
+	//	timer := time.NewTimer(30 * time.Second)
+	//
+	//	// 等待计时器到期
+	//	<-timer.C
+	//	irecorder.Stop(zap.String("reason", "api"))
+	//}()
 	//id = recorder.ID
 	if err != nil {
 		exceptionChannel <- &Exception{AlarmType: "record", AlarmDesc: "录像失败", StreamPath: streamPath}

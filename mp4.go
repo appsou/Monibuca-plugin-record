@@ -2,6 +2,7 @@ package record
 
 import (
 	"net"
+	"time"
 
 	"github.com/yapingcat/gomedia/go-mp4"
 	"go.uber.org/zap"
@@ -15,6 +16,16 @@ type MP4Recorder struct {
 	*mp4.Movmuxer `json:"-" yaml:"-"`
 	videoId       uint32
 	audioId       uint32
+}
+
+func (r *MP4Recorder) StartWithDynamicTimeout(streamPath, fileName string, timeout time.Duration) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (r *MP4Recorder) UpdateTimeout(timeout time.Duration) {
+	//TODO implement me
+	panic("implement me")
 }
 
 func NewMP4Recorder() *MP4Recorder {

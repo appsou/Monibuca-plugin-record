@@ -2,11 +2,13 @@ package record
 
 import (
 	"fmt"
+	"go.uber.org/zap/zapcore"
 	"io"
 	"net"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -21,10 +23,71 @@ type FLVRecorder struct {
 	times         []float64
 	Offset        int64
 	duration      int64
+	timer         *time.Timer
+	stopCh        chan struct{}
+	mu            sync.Mutex
+}
+
+// Goroutine 等待定时器停止录像
+func (r *FLVRecorder) waitForStop(streamPath string) {
+	select {
+	case <-r.timer.C: // 定时器到期
+		r.StopTimerRecord(zap.String("reason", "timer expired"))
+	case <-r.stopCh: // 手动停止
+		return
+	}
+}
+
+// 停止定时录像
+func (r *FLVRecorder) StopTimerRecord(reason ...zapcore.Field) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// 停止录像
+	r.Stop(reason...)
+
+	// 关闭 stop 通道，停止 Goroutine
+	close(r.stopCh)
+}
+
+// 重置定时器
+func (r *FLVRecorder) resetTimer(timeout time.Duration) {
+	if r.timer != nil {
+		r.Info("事件录像", zap.String("timeout seconeds is reset to", fmt.Sprintf("%.0f", timeout.Seconds())))
+		r.timer.Reset(timeout)
+	} else {
+		r.Info("事件录像", zap.String("timeout seconeds is first set to", fmt.Sprintf("%.0f", timeout.Seconds())))
+		r.timer = time.NewTimer(timeout)
+	}
+}
+
+func (r *FLVRecorder) StartWithDynamicTimeout(streamPath, fileName string, timeout time.Duration) error {
+	// 启动录像
+	if err := r.StartWithFileName(streamPath, fileName); err != nil {
+		return err
+	}
+
+	// 创建定时器
+	r.resetTimer(timeout)
+
+	// 启动 Goroutine 监听定时器
+	go r.waitForStop(streamPath)
+
+	return nil
+}
+
+func (r *FLVRecorder) UpdateTimeout(timeout time.Duration) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// 停止旧的定时器并重置
+	r.resetTimer(timeout)
 }
 
 func NewFLVRecorder() (r *FLVRecorder) {
-	r = &FLVRecorder{}
+	r = &FLVRecorder{
+		stopCh: make(chan struct{}),
+	}
 	r.Record = RecordPluginConfig.Flv
 	return r
 }

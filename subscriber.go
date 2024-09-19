@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"io"
 	"path/filepath"
-	"strconv"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -18,6 +18,8 @@ type IRecorder interface {
 	StartWithFileName(streamPath string, fileName string) error
 	io.Closer
 	CreateFile() (FileWr, error)
+	StartWithDynamicTimeout(streamPath, fileName string, timeout time.Duration) error
+	UpdateTimeout(timeout time.Duration)
 }
 
 type Recorder struct {
@@ -61,7 +63,7 @@ func (r *Recorder) getFileName(streamPath string) (filename string) {
 			filename = filepath.Join(filename, r.FileName)
 		}
 	} else {
-		filename = filepath.Join(filename, strconv.FormatInt(time.Now().Unix(), 10))
+		filename = filepath.Join(filename, strings.ReplaceAll(streamPath, "/", "-")+"-"+time.Now().Format("2006-01-02-15-04-05"))
 	}
 	return
 }
@@ -114,6 +116,16 @@ func (r *Recorder) OnEvent(event any) {
 			r.cut(v.AbsTime)
 		}
 	case VideoFrame:
+		if v.IFrame {
+			//go func() { //将视频关键帧的数据存入sqlite数据库中
+			//	var flvKeyfram = &FLVKeyframe{FLVFileName: r.Path + "/" + strings.ReplaceAll(r.filePath, "\\", "/"), FrameOffset: r.VideoReader, FrameAbstime: v.AbsTime}
+			//	sqlitedb.Create(flvKeyfram)
+			//}()
+			r.Info("这是关键帧，且取到了r.filePath是" + r.Path + r.filePath)
+			//r.Info("这是关键帧，且取到了r.VideoReader.AbsTime是" + strconv.FormatUint(uint64(v.FrameAbstime), 10))
+			//r.Info("这是关键帧，且取到了r.Offset是" + strconv.Itoa(int(v.FrameOffset)))
+			//r.Info("这是关键帧，且取到了r.Offset是" + r.Stream.Path)
+		}
 		if r.Fragment > 0 && v.IFrame {
 			r.cut(v.AbsTime)
 		}

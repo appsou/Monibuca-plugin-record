@@ -16,6 +16,8 @@ func initSqliteDB(sqliteDbPath string) {
 		log.Fatal(err)
 	}
 	err = sqlitedb.AutoMigrate(&FLVKeyframe{})
+	err = sqlitedb.AutoMigrate(&EventRecord{})
+	err = sqlitedb.AutoMigrate(&Exception{})
 	if err != nil {
 		log.Fatal(err)
 	}

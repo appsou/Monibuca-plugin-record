@@ -76,18 +76,22 @@ var exceptionChannel = make(chan *Exception)
 func (conf *RecordConfig) OnEvent(event any) {
 	switch v := event.(type) {
 	case FirstConfig, config.Config:
-		if conf.MysqlDSN == "" {
-			plugin.Error("mysqlDSN 数据库连接配置为空，无法运行，请在config.yaml里配置")
-		}
-		plugin.Info("mysqlDSN is" + conf.MysqlDSN)
+		//if conf.MysqlDSN == "" {
+		//	plugin.Error("mysqlDSN 数据库连接配置为空，无法运行，请在config.yaml里配置")
+		//}
 
 		go func() { //处理所有异常，录像中断异常、录像读取异常、录像导出文件中断、磁盘容量低于阈值异常、磁盘异常
 			for exception := range exceptionChannel {
 				SendToThirdPartyAPI(exception)
 			}
 		}()
-		initMysqlDB(conf.MysqlDSN)
-		initSqliteDB(conf.SqliteDbPath)
+		if conf.MysqlDSN == "" {
+			plugin.Info("sqliteDb filepath is" + conf.SqliteDbPath)
+			initSqliteDB(conf.SqliteDbPath)
+		} else {
+			plugin.Info("mysqlDSN is" + conf.MysqlDSN)
+			initMysqlDB(conf.MysqlDSN)
+		}
 		conf.Flv.Init()
 		conf.Mp4.Init()
 		conf.Fmp4.Init()
