@@ -2,6 +2,8 @@ package record
 
 import (
 	"net"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/yapingcat/gomedia/go-mp4"
@@ -16,6 +18,16 @@ type MP4Recorder struct {
 	*mp4.Movmuxer `json:"-" yaml:"-"`
 	videoId       uint32
 	audioId       uint32
+}
+
+func (r *MP4Recorder) SetId(string) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (r *MP4Recorder) GetRecordModeString(mode RecordMode) string {
+	//TODO implement me
+	panic("implement me")
 }
 
 func (r *MP4Recorder) StartWithDynamicTimeout(streamPath, fileName string, timeout time.Duration) error {
@@ -54,7 +66,17 @@ func (r *MP4Recorder) Close() (err error) {
 			r.Info("mp4 write trailer", zap.Error(err))
 		}
 		err = r.File.Close()
+		if !isWrifeFrame {
+			fullPath := filepath.Join(r.Path, "/", r.filePath)
+			go func() {
+				err = os.Remove(fullPath)
+				if err != nil {
+					r.Info("未写入帧，文件为空，直接删除，删除结果为=======" + err.Error())
+				}
+			}()
+		}
 	}
+	isWrifeFrame = false
 	return
 }
 func (r *MP4Recorder) setTracks() {

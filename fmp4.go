@@ -44,6 +44,16 @@ type FMP4Recorder struct {
 	ftyp        *mp4.FtypBox
 }
 
+func (r *FMP4Recorder) SetId(string) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (r *FMP4Recorder) GetRecordModeString(mode RecordMode) string {
+	//TODO implement me
+	panic("implement me")
+}
+
 func (r *FMP4Recorder) StartWithDynamicTimeout(streamPath, fileName string, timeout time.Duration) error {
 	//TODO implement me
 	panic("implement me")

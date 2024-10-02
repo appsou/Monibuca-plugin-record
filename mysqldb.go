@@ -8,15 +8,15 @@ import (
 	"reflect"
 )
 
-var mysqldb *gorm.DB
+// var mysqldb *gorm.DB
 var err error
 
 var createDataBaseSql = `CREATE DATABASE IF NOT EXISTS m7srecord;`
 
 var useDataBaseSql = `USE m7srecord;`
 
-func initMysqlDB(MysqlDSN string) {
-	mysqldb, err = gorm.Open(mysql.Open(MysqlDSN), &gorm.Config{})
+func initMysqlDB(MysqlDSN string) *gorm.DB {
+	mysqldb, err := gorm.Open(mysql.Open(MysqlDSN), &gorm.Config{})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -24,9 +24,10 @@ func initMysqlDB(MysqlDSN string) {
 	mysqldb.Exec(useDataBaseSql)
 	mysqldb.AutoMigrate(&EventRecord{})
 	mysqldb.AutoMigrate(&Exception{})
+	return mysqldb
 }
 
-func paginate[T any](model T, pageNum, pageSize int, filters map[string]interface{}) ([]T, int64, error) {
+func paginate[T any](mysqldb *gorm.DB, model T, pageNum, pageSize int, filters map[string]interface{}) ([]T, int64, error) {
 	var results []T
 	var totalCount int64
 

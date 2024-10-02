@@ -18,7 +18,7 @@ func SendToThirdPartyAPI(exception *Exception) {
 		fmt.Println("Error marshalling exception:", err)
 		return
 	}
-	err = mysqldb.Create(&exception).Error
+	err = db.Create(&exception).Error
 	if err != nil {
 		fmt.Println("异常数据插入数据库失败:", err)
 		return

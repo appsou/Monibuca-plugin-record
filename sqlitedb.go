@@ -6,12 +6,10 @@ import (
 	"log"
 )
 
-var sqlitedb *gorm.DB
-
 // sqlite数据库初始化，用来存放视频的关键帧等信息
-func initSqliteDB(sqliteDbPath string) {
+func initSqliteDB(sqliteDbPath string) *gorm.DB {
 	// 打开数据库连接
-	sqlitedb, err = gorm.Open(sqlite.Open(sqliteDbPath), &gorm.Config{})
+	sqlitedb, err := gorm.Open(sqlite.Open(sqliteDbPath), &gorm.Config{})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -21,4 +19,5 @@ func initSqliteDB(sqliteDbPath string) {
 	if err != nil {
 		log.Fatal(err)
 	}
+	return sqlitedb
 }

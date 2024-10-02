@@ -13,6 +13,16 @@ type RawRecorder struct {
 	IsAudio bool
 }
 
+func (r *RawRecorder) SetId(string) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (r *RawRecorder) GetRecordModeString(mode RecordMode) string {
+	//TODO implement me
+	panic("implement me")
+}
+
 func (r *RawRecorder) StartWithDynamicTimeout(streamPath, fileName string, timeout time.Duration) error {
 	//TODO implement me
 	panic("implement me")

@@ -47,7 +47,7 @@ func (conf *RecordConfig) API_event_pull(w http.ResponseWriter, r *http.Request)
 	id := int(postData["id"].(float64))
 	if id > 0 {
 		var eventRecord EventRecord
-		result := mysqldb.First(&eventRecord, id) // 根据主键查询
+		result := db.First(&eventRecord, id) // 根据主键查询
 		if result.Error != nil {
 			log.Println("Error finding eventrecord:", result.Error)
 		}
@@ -117,7 +117,7 @@ func (conf *RecordConfig) API_alarm_list(w http.ResponseWriter, r *http.Request)
 		util.ReturnError(-1, errorJsonString(resultJsonData), w, r)
 		return
 	}
-	exceptions, totalCount, err := paginate(Exception{}, int(pageNum), int(pageSize), postData)
+	exceptions, totalCount, err := paginate(db, Exception{}, int(pageNum), int(pageSize), postData)
 	if err != nil {
 		resultJsonData["msg"] = err.Error()
 		util.ReturnError(-1, errorJsonString(resultJsonData), w, r)
@@ -163,7 +163,7 @@ func (conf *RecordConfig) API_event_list(w http.ResponseWriter, r *http.Request)
 		util.ReturnError(-1, errorJsonString(resultJsonData), w, r)
 		return
 	}
-	eventRecords, totalCount, err := paginate(EventRecord{}, int(pageNum), int(pageSize), postData)
+	eventRecords, totalCount, err := paginate(db, EventRecord{}, int(pageNum), int(pageSize), postData)
 	if err != nil {
 		resultJsonData["msg"] = err.Error()
 		util.ReturnError(-1, errorJsonString(resultJsonData), w, r)
@@ -224,6 +224,10 @@ func (conf *RecordConfig) API_event_start(w http.ResponseWriter, r *http.Request
 		util.ReturnError(-1, errorJsonString(resultJsonData), w, r)
 		return
 	}
+	t := eventRecordModel.Type
+	if t == "" {
+		t = "flv"
+	}
 	//recordMode := eventRecordModel.RecordMode
 	//if recordMode == "" {
 	//	resultJsonData["msg"] = "no recordMode"
@@ -245,62 +249,65 @@ func (conf *RecordConfig) API_event_start(w http.ResponseWriter, r *http.Request
 		afterDuration = strconv.Itoa(conf.afterDuration)
 	}
 	recordTime := time.Now().Format("2006-01-02 15:04:05")
-	fileName := time.Now().Format("20060102150405")
+	fileName := strings.ReplaceAll(streamPath, "/", "-") + "-" + time.Now().Format("2006-01-02-15-04-05")
 	startTime := time.Now().Add(-30 * time.Second).Format("2006-01-02 15:04:05")
 	endTime := time.Now().Add(30 * time.Second).Format("2006-01-02 15:04:05")
 	//切片大小
 	fragment := eventRecordModel.Fragment
 	//var id string
-	irecorder := NewFLVRecorder()
-	found := false
-	conf.recordings.Range(func(key, value any) bool {
-		tmpIRecorder := value.(*FLVRecorder)
-		existStreamPath := tmpIRecorder.GetSubscriber().Stream.Path
-		if existStreamPath == streamPath {
-			irecorder = tmpIRecorder
-			found = true
-		}
-		return found
-	})
+	irecorder := NewFLVRecorder(EventMode)
 	recorder := irecorder.GetRecorder()
 	recorder.FileName = fileName
 	recorder.append = false
-	filepath := conf.Flv.Path + "/" + streamPath + "/" + fileName + recorder.Ext
-	urlpath := "record/" + streamPath + "/" + fileName + recorder.Ext
+	irecorder.SetId(streamPath)
+	filepath := conf.Flv.Path + "/" + streamPath + "/" + fileName + recorder.Ext //录像文件存入的完整路径（相对路径）
+	urlpath := "record/" + streamPath + "/" + fileName + recorder.Ext            //网络拉流的地址
 	if fragment != "" {
 		if f, err := time.ParseDuration(fragment); err == nil {
 			recorder.Fragment = f
 		}
+	} else {
+		recorder.Fragment = 0
 	}
-
+	found := false
+	if recordtmp, ok := conf.recordings.Load(recorder.ID); ok {
+		found = true
+		irecorder = recordtmp.(*FLVRecorder)
+	}
 	if found {
 		irecorder.UpdateTimeout(30 * time.Second)
 	} else {
 		err = irecorder.StartWithDynamicTimeout(streamPath, fileName, 30*time.Second)
 	}
-	//go func() {
-	//	timer := time.NewTimer(30 * time.Second)
-	//
-	//	// 等待计时器到期
-	//	<-timer.C
-	//	irecorder.Stop(zap.String("reason", "api"))
-	//}()
-	//id = recorder.ID
 	if err != nil {
 		exceptionChannel <- &Exception{AlarmType: "record", AlarmDesc: "录像失败", StreamPath: streamPath}
 		resultJsonData["msg"] = err.Error()
 		util.ReturnError(-1, errorJsonString(resultJsonData), w, r)
 		return
 	}
-	eventRecord := EventRecord{StreamPath: streamPath, EventId: eventId, RecordMode: "1", EventName: eventName, BeforeDuration: beforeDuration,
-		AfterDuration: afterDuration, CreateTime: recordTime, StartTime: startTime, EndTime: endTime, Filepath: filepath, Filename: fileName + recorder.Ext, EventDesc: eventRecordModel.EventDesc, Urlpath: urlpath}
-	err = mysqldb.Omit("id", "fragment", "isDelete").Create(&eventRecord).Error
+	var outid uint
+	var eventRecord EventRecord
+	if found {
+		var oldeventRecord EventRecord
+		// 定义 User 结构体作为查询条件
+		queryRecord := EventRecord{StreamPath: streamPath}
+		db.Where(&queryRecord).Order("id DESC").First(&oldeventRecord)
+		eventRecord = EventRecord{StreamPath: streamPath, EventId: eventId, RecordMode: "1", EventName: eventName, BeforeDuration: beforeDuration,
+			AfterDuration: afterDuration, CreateTime: recordTime, StartTime: startTime, EndTime: endTime, Filepath: oldeventRecord.Filepath, Filename: oldeventRecord.Filename,
+			EventDesc: eventRecordModel.EventDesc, Urlpath: oldeventRecord.Urlpath, Type: t}
+	} else {
+		eventRecord = EventRecord{StreamPath: streamPath, EventId: eventId, RecordMode: "1", EventName: eventName, BeforeDuration: beforeDuration,
+			AfterDuration: afterDuration, CreateTime: recordTime, StartTime: startTime, EndTime: endTime, Filepath: filepath, Filename: fileName + recorder.Ext, EventDesc: eventRecordModel.EventDesc, Urlpath: urlpath, Type: t}
+	}
+	err = db.Omit("id", "fragment", "isDelete").Create(&eventRecord).Error
+	outid = eventRecord.Id
 	if err != nil {
+		exceptionChannel <- &Exception{AlarmType: "record", AlarmDesc: "录像失败", StreamPath: streamPath}
+
 		resultJsonData["msg"] = err.Error()
 		util.ReturnError(-1, errorJsonString(resultJsonData), w, r)
 		return
 	}
-	outid := eventRecord.Id
 	resultJsonData["id"] = outid
 	resultJsonData["code"] = 0
 	resultJsonData["msg"] = ""
