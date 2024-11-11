@@ -58,22 +58,26 @@ func (r *MP4Recorder) StartWithFileName(streamPath string, fileName string) erro
 
 func (r *MP4Recorder) Close() (err error) {
 	if r.File != nil {
-		err = r.Movmuxer.WriteTrailer()
-		if err != nil {
-			r.Error("mp4 write trailer", zap.Error(err))
-		} else {
-			// _, err = r.file.Write(r.cache.buf)
-			r.Info("mp4 write trailer", zap.Error(err))
-		}
-		err = r.File.Close()
 		if !isWrifeFrame {
 			fullPath := filepath.Join(r.Path, "/", r.filePath)
-			go func() {
+			go func(f FileWr) {
+				err = r.File.Close()
 				err = os.Remove(fullPath)
 				if err != nil {
 					r.Info("未写入帧，文件为空，直接删除，删除结果为=======" + err.Error())
 				}
-			}()
+			}(r.File)
+		} else {
+			go func(f FileWr) {
+				err = r.Movmuxer.WriteTrailer()
+				if err != nil {
+					r.Error("mp4 write trailer", zap.Error(err))
+				} else {
+					// _, err = r.file.Write(r.cache.buf)
+					r.Info("mp4 write trailer", zap.Error(err))
+				}
+				err = f.Close()
+			}(r.File)
 		}
 	}
 	isWrifeFrame = false
